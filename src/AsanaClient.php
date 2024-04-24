@@ -8,18 +8,16 @@ class AsanaClient
 {
     private $accessToken;
     private $client;
-    private $errorLogFile = 'logs/error.log';
+    private $errorLogFile;
 
     /**
-     * AsanaClient constructor.
-     *
-     * Initialize a new instance of AsanaClient.
+     * Constructor for the AsanaClient class.
      *
      * @param string $accessToken The Asana personal access token.
      */
     public function __construct($accessToken)
     {
-        // Set the access token.
+        // Set the Asana personal access token.
         $this->accessToken = $accessToken;
 
         // Initialize the HTTP client.
@@ -32,6 +30,23 @@ class AsanaClient
                 'Authorization' => "Bearer {$this->accessToken}"
             ]
         ]);
+
+        // Set the path to the error log file. The file name includes the current date in YYYY-MM-DD format.
+        $this->errorLogFile = "logs/" . $this->getTodayDate() . "_error.log";
+    }
+
+    /**
+     * Get the current date in YYYY-MM-DD format.
+     *
+     * This function uses the PHP date function to get the current date and format it
+     * as 'Y-m-d'.
+     *
+     * @return string The current date in YYYY-MM-DD format.
+     */
+    private function getTodayDate()
+    {
+        // Get the current date and format it as 'Y-m-d'.
+        return date('Y-m-d');
     }
 
     /**
@@ -49,7 +64,7 @@ class AsanaClient
         $hoursData = $this->readUpdatedHoursFromFile();
 
         // Loop through each task in the data and update its hours
-        foreach ($hoursData as $taskId => $hours) {
+        foreach ($hoursData['hours'] as $taskId => $hours) {
             // Get the ID of the 'Harvest Hours' custom field for the task
             $customFieldId = $this->getCustomFieldIdForTask($taskId, 'Harvest Hours');
 
@@ -83,52 +98,42 @@ class AsanaClient
     /**
      * Retrieves the ID of a custom field for a given task.
      *
-     * @param int    $taskId         The ID of the task.
-     * @param string $fieldName      The name of the custom field.
-     * @return string|null           The ID of the custom field, or null if not found.
+     * Sends a GET request to the Asana API to retrieve the task data and then loops through
+     * the custom fields of the task to find the ID of the field with the given name.
+     *
+     * @param int    $taskId The ID of the task.
+     * @param string $fieldName The name of the custom field.
+     * @return string|null The ID of the custom field, or null if not found.
      */
     private function getCustomFieldIdForTask(int $taskId, string $fieldName): ?string
     {
-        // Log the starting of the function
-        error_log("Starting getCustomFieldIdForTask($taskId, $fieldName)");
-
-        /**
-         * Retrieves the ID of a custom field for a given task.
-         *
-         * @param int    $taskId The ID of the task.
-         * @param string $fieldName The name of the custom field.
-         * @return string|null The ID of the custom field, or null if not found.
-         */
-
         // Send a GET request to the Asana API to retrieve the task data
         try {
-            // Log the URL being requested
-            error_log("Requesting task data for task ID $taskId");
-            $response = $this->client->get("tasks/{$taskId}", [
+            // Set the request parameters
+            $params = [
                 'query' => ['opt_fields' => 'custom_fields']
-            ]);
+            ];
+
+            // Send the GET request
+            $response = $this->client->get("tasks/{$taskId}", $params);
         } catch (\Exception $e) {
             // If the request fails, log the error and return null
             $this->handleRequestException($taskId, $e, $this->errorLogFile);
-            error_log("Error occurred while getting task data for task ID $taskId. Returning null.");
             return null;
         }
 
         // Decode the response body as an associative array
         $taskData = json_decode($response->getBody(), true);
 
-        // Loop through the custom fields of the task and return the ID of the field with the given name
+        // Loop through the custom fields of the task and find the ID of the field with the given name
         foreach ($taskData['data']['custom_fields'] as $customField) {
-            // If the custom field name matches the given name, log the ID and return it
+            // If the custom field name matches the given name, return the ID
             if ($customField['name'] === $fieldName) {
-                // Log the custom field ID being returned
-                error_log("Returning custom field ID {$customField['gid']}");
                 return $customField['gid'];
             }
         }
 
-        // If no custom field with the given name is found, log and return null
-        error_log("No custom field with name $fieldName found for task ID $taskId. Returning null.");
+        // If no custom field with the given name is found, return null
         return null;
     }
 

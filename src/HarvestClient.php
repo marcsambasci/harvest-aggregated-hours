@@ -76,9 +76,6 @@ class HarvestClient
      */
     private function fetchTimeEntries(?string $fromDate = null, ?string $toDate = null) : array
     {
-        // Log the start of the time entry fetching process.
-        error_log('Fetching time entries from ' . ($fromDate ?? $this->get90DaysAgoDate()) . ' to ' . ($toDate ?? $this->getTodayDate()));
-
         // Set the from and to dates for the API request.
         $from = $fromDate ?? $this->get90DaysAgoDate();
         $to = $toDate ?? $this->getTodayDate();
@@ -97,9 +94,6 @@ class HarvestClient
 
         // Loop to fetch time entries from multiple pages.
         while ($hasMorePages) {
-            // Log the current page being fetched.
-            error_log('Fetching page ' . $page);
-
             // Send the API request for the current page.
             $response = $this->client->get('time_entries', ['query' => $query]);
 
@@ -108,8 +102,6 @@ class HarvestClient
 
             // Check if the response is valid.
             if (!isset($data['time_entries']) || !is_array($data['time_entries'])) {
-                // Log an error message if the response is invalid.
-                error_log('Invalid response from Harvest API');
                 throw new \RuntimeException('Invalid response from Harvest API');
             }
 
@@ -128,10 +120,6 @@ class HarvestClient
             // Log the fetching of the next page if applicable.
             if ($hasMorePages) {
                 $query['page'] = $page;
-                error_log('Fetching next page ' . $page);
-            } else {
-                // Log the completion of time entry fetching.
-                error_log('Finished fetching time entries');
             }
         }
 
@@ -182,6 +170,8 @@ class HarvestClient
             mkdir($directory, 0777, true);
         }
 
+        $hasUpdatedHours = false;
+
         // Array to store only the updated hours
         $differences = [];
 
@@ -204,15 +194,17 @@ class HarvestClient
             }
 
             $finalData = $existingHours; // Merged data
+            $hasUpdatedHours = !empty($differences);
         } else {
             $differences = $hoursByReference; // All new data are differences if file doesn't exist
+            $hasUpdatedHours = !empty($differences);
         }
 
         // Write the updated final data back to the all_hours.json file
         file_put_contents($outputPathAll, json_encode($finalData, JSON_PRETTY_PRINT));
 
         // Write only the updated hours to the updated_hours.json file
-        file_put_contents($outputPathUpdated, json_encode($differences, JSON_PRETTY_PRINT));
+        file_put_contents($outputPathUpdated, json_encode(array('updateData' => $hasUpdatedHours, 'hours' => $differences), JSON_PRETTY_PRINT));
 
         // Return the newly aggregated hours (for confirmation or further processing)
         return $differences;

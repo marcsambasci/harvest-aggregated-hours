@@ -18,16 +18,40 @@ use Dotenv\Dotenv;
 $dotenv = Dotenv::createImmutable(__DIR__);
 $dotenv->load();
 
-// Initialize Asana and Harvest clients
-$asanaClient = new AsanaClient($_ENV['ASANA_API_TOKEN']);
 $harvestClient = new HarvestClient($_ENV['HARVEST_API_TOKEN'], $_ENV['HARVEST_ACCOUNT_ID']);
 
-// Harvest API calls
-$hoursByReference = $harvestClient->aggregateHoursByExternalReference();
+// Check if the updated_hours.json file exists and has the 'updated' property set to true
+$dataDirectory = __DIR__ . '/data/';
+$updatedHoursFile = $dataDirectory . 'updated_hours.json';
 
-// Asana API calls
-$updateHoursFromJson = $asanaClient->updateHoursFromJson();
+/**
+ * Check if the updated_hours.json file exists and has the 'updateData' property set to true.
+ * If it does, update the hours in Asana tasks using data from the file.
+ * If it doesn't, aggregate hours from Harvest API and save the result to the file.
+ */
+if (file_exists($updatedHoursFile)) {
+    // Load the JSON data from the file
+    $updateData = json_decode(file_get_contents($updatedHoursFile), true);
 
-echo "Done!";
+    // Check if the data is an array and the 'updateData' property is true
+    if (is_array($updateData) && isset($updateData['updateData']) && $updateData['updateData']) {
+        // Initialize Asana client
+        $asanaClient = new AsanaClient($_ENV['ASANA_API_TOKEN']);
+
+        // Update hours in Asana tasks using data from the file
+        $asanaClient->updateHoursFromJson();
+
+        // Update the 'updateData' property to false in the file
+        file_put_contents($updatedHoursFile, json_encode(array('updateData' => false, 'hours' => $updateData['hours']), JSON_PRETTY_PRINT));
+    } else {
+        // Harvest API calls
+        $harvestClient->aggregateHoursByExternalReference();
+    }
+} else {
+    // Harvest API calls
+    $harvestClient->aggregateHoursByExternalReference();
+}
+
+echo "Success!";
 
 exit;
