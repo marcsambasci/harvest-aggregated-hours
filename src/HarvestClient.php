@@ -20,10 +20,8 @@ class HarvestClient
     {
         // Set the Harvest API access token
         $this->apiToken = $apiToken;
-        
         // Set the Harvest account ID
         $this->accountId = $accountId;
-        
         // Initialize the Guzzle HTTP client with base URI and headers
         $this->client = new Client([
             'base_uri' => 'https://api.harvestapp.com/v2/', // Base URI for API requests
@@ -47,7 +45,7 @@ class HarvestClient
     {
         // Calculate the date 90 days ago using strtotime
         $date = strtotime('-90 days');
-        
+
         // Format the result as 'Y-m-d' and return it
         return date('Y-m-d', $date);
     }
@@ -74,7 +72,7 @@ class HarvestClient
      * @return array The fetched time entries.
      * @throws \RuntimeException If there is an error while fetching time entries from the Harvest API.
      */
-    private function fetchTimeEntries(?string $fromDate = null, ?string $toDate = null) : array
+    private function fetchTimeEntries(?string $fromDate = null, ?string $toDate = null): array
     {
         // Set the from and to dates for the API request.
         $from = $fromDate ?? $this->get90DaysAgoDate();
@@ -135,12 +133,12 @@ class HarvestClient
      * and updated_hours.json. It returns the aggregate hours by reference ID,
      * excluding hours that are already present in the saved JSON files.
      *
-     * @param array $entries Array of time entries.
-     * @throws \InvalidArgumentException If $entries is not an array.
      * @return array Associative array of hours by reference ID.
+     * @throws \InvalidArgumentException If $entries is not an array.
      */
     public function aggregateHoursByExternalReference()
     {
+        // Fetch time entries from the Harvest API
         $entries = $this->fetchTimeEntries();
 
         // Check if $entries is not empty
@@ -170,12 +168,9 @@ class HarvestClient
             mkdir($directory, 0777, true);
         }
 
+        // Initialize variables and arrays
         $hasUpdatedHours = false;
-
-        // Array to store only the updated hours
         $differences = [];
-
-        // Final data will be the merged data
         $finalData = $hoursByReference;
 
         // Check if the all_hours.json exists and merge data if it does

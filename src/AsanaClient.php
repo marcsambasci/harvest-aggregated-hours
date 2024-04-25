@@ -9,6 +9,8 @@ class AsanaClient
     private $accessToken;
     private $client;
     private $errorLogFile;
+    private $successLogFile;
+    private $logSuccessResults = false; // If set to true, the success log file will be written to.
 
     /**
      * Constructor for the AsanaClient class.
@@ -19,20 +21,19 @@ class AsanaClient
     {
         // Set the Asana personal access token.
         $this->accessToken = $accessToken;
-
         // Initialize the HTTP client.
         $this->client = new Client([
             // Set the base URI for API requests.
             'base_uri' => 'https://app.asana.com/api/1.0/',
-
             // Set the authorization header with the access token.
             'headers' => [
                 'Authorization' => "Bearer {$this->accessToken}"
             ]
         ]);
-
         // Set the path to the error log file. The file name includes the current date in YYYY-MM-DD format.
         $this->errorLogFile = "logs/" . $this->getTodayDate() . "_error.log";
+        // Set the path to the success log file. The file name includes the current date in YYYY-MM-DD format.
+        $this->successLogFile = "logs/" . $this->getTodayDate() . "_success.log";
     }
 
     /**
@@ -76,6 +77,41 @@ class AsanaClient
     }
 
     /**
+     * Updates hours in Asana tasks based on the data stored in a JSON file.
+     *
+     * This function retrieves the updated hours data from a JSON file and loops
+     * through each task, checking if the hours need to be updated. If the hours
+     * need to be updated, it retrieves the ID of the 'Harvest Hours' custom field
+     * in the task and updates the corresponding custom field value with the
+     * provided hours.
+     *
+     * @return void
+     */
+    public function updateRemainingHoursFromJson()
+    {
+        // Retrieve the updated hours data from the JSON file
+        $hoursData = $this->readUpdatedHoursFromFile();
+
+        // Loop through each task in the data and update its hours if necessary
+        foreach ($hoursData['hours'] as $taskId => $hours) {
+            // Get the current hours for the task
+            $currentHours = $this->fetchTaskCustomFieldValue($taskId, 'Harvest Hours');
+
+            // Check if the hours need to be updated
+            if ($currentHours !== $hours) {
+                // Get the ID of the 'Harvest Hours' custom field for the task
+                $customFieldId = $this->getCustomFieldIdForTask($taskId, 'Harvest Hours');
+
+                // If the custom field ID exists, update the hours in the custom field
+                if ($customFieldId) {
+                    // Update the hours in the custom field
+                    $this->updateCustomField($taskId, $customFieldId, $hours);
+                }
+            }
+        }
+    }
+
+    /**
      * Reads the updated hours data from a JSON file.
      *
      * @return array The decoded JSON data, or an empty array if the file doesn't exist.
@@ -96,22 +132,66 @@ class AsanaClient
     }
 
     /**
+     * Retrieves the value of a custom field for a given task.
+     *
+     * Sends a GET request to the Asana API to retrieve the task data and
+     * loops through the custom fields of the task to find the value of the
+     * field with the given name.
+     *
+     * @param int    $taskId     The ID of the task.
+     * @param string $fieldName  The name of the custom field.
+     * @return string|null The value of the custom field, or null if not found.
+     */
+    private function fetchTaskCustomFieldValue(int $taskId, string $fieldName): ?string
+    {
+        // Sends a GET request to the Asana API to retrieve the task data
+        try {
+            // Set the request parameters
+            $params = [
+                'query' => ['opt_fields' => 'custom_fields'],
+            ];
+
+            // Send the GET request to retrieve the task data
+            $response = $this->client->get("tasks/{$taskId}", $params);
+        } catch (\Exception $e) {
+            // If the request fails, log the error and return null
+            $this->handleRequestException($taskId, $e, $this->errorLogFile);
+            return null;
+        }
+
+        // Decode the response body as an associative array
+        $taskData = json_decode($response->getBody(), true);
+
+        // Loop through the custom fields of the task
+        foreach ($taskData['data']['custom_fields'] as $customField) {
+            // Check if the custom field name matches the given name
+            if ($customField['name'] === $fieldName) {
+                // Return the value of the custom field
+                return $customField['number_value'];
+            }
+        }
+
+        // If no custom field with the given name is found, return null
+        return null;
+    }
+
+    /**
      * Retrieves the ID of a custom field for a given task.
      *
-     * Sends a GET request to the Asana API to retrieve the task data and then loops through
+     * Sends a GET request to the Asana API to retrieve the task data and loops through
      * the custom fields of the task to find the ID of the field with the given name.
      *
-     * @param int    $taskId The ID of the task.
-     * @param string $fieldName The name of the custom field.
+     * @param int    $taskId     The ID of the task.
+     * @param string $fieldName  The name of the custom field.
      * @return string|null The ID of the custom field, or null if not found.
      */
     private function getCustomFieldIdForTask(int $taskId, string $fieldName): ?string
     {
-        // Send a GET request to the Asana API to retrieve the task data
+        // Sends a GET request to the Asana API to retrieve the task data
         try {
             // Set the request parameters
             $params = [
-                'query' => ['opt_fields' => 'custom_fields']
+                'query' => ['opt_fields' => 'custom_fields'], // Specify the opt_fields parameter to retrieve custom fields
             ];
 
             // Send the GET request
@@ -127,9 +207,9 @@ class AsanaClient
 
         // Loop through the custom fields of the task and find the ID of the field with the given name
         foreach ($taskData['data']['custom_fields'] as $customField) {
-            // If the custom field name matches the given name, return the ID
+            // Check if the custom field name matches the given name
             if ($customField['name'] === $fieldName) {
-                return $customField['gid'];
+                return $customField['gid']; // Return the ID of the custom field if match is found
             }
         }
 
@@ -140,6 +220,10 @@ class AsanaClient
     /**
      * Updates the value of a custom field for a given task.
      *
+     * This function prepares the request payload, makes a PUT request to update
+     * the custom field value, and decodes the response body. It also handles
+     * exceptions that may occur during the process.
+     *
      * @param int    $taskId         The ID of the task.
      * @param string $customFieldId  The ID of the custom field.
      * @param float  $hours          The new value for the custom field.
@@ -149,7 +233,7 @@ class AsanaClient
      */
     private function updateCustomField(int $taskId, string $customFieldId, float $hours): array
     {
-        // Create the directory for the error log, if it doesn't exist.
+        // Prepare the directory for logging errors, if it doesn't exist.
         $this->createDirectory($this->errorLogFile);
 
         try {
@@ -171,16 +255,19 @@ class AsanaClient
                 ]
             );
 
-            // Optional: Log the success of the update.
-            $this->logSuccess($taskId, 'logs/success.log');
+            // Log the success of the update, if logging is enabled.
+            if ($this->logSuccessResults) {
+                $this->logSuccess($taskId, $this->successLogFile);
+            }
 
             // Decode the response body and return it.
-            return json_decode($response->getBody()->getContents(), true);
+            $responseBody = $response->getBody()->getContents();
+            return json_decode($responseBody, true);
         } catch (\GuzzleHttp\Exception\RequestException $e) {
-            // Handle request exceptions.
+            // Handle request exceptions and return the result of the exception handler.
             return $this->handleRequestException($taskId, $e, $this->errorLogFile);
         } catch (\Exception $e) {
-            // Handle generic exceptions.
+            // Handle generic exceptions and return the result of the exception handler.
             return $this->handleGenericException($e, $this->errorLogFile);
         }
     }
