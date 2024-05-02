@@ -1,7 +1,11 @@
+# Ignore Directories
+.vscode
 /vendor
 /logs
 /data
-.vscode
+
+# Ignore Files
+.env_backup
 .DS_Store
 *.log
 composer.lock
